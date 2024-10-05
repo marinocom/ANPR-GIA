@@ -3,3 +3,4 @@ images/*
 Dataset
 runs
 *.pt
+__pycache__
