@@ -4,6 +4,7 @@ import cv2
 from ultralytics import YOLO
 from typing import Optional, Union, List
 from PIL import Image
+import numpy as np
 
 class Pipeline:
 	def __init__(
@@ -91,7 +92,7 @@ class Pipeline:
 		boxes = [
 			[
 				{
-					"image": Image.fromarray(cv2.cv2Color(img, cv2.COLOR_BGR2RGB)),
+					"image": Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
 					"box": box.cpu().numpy().astype(int).tolist(), # [x1, y1, x2, y2]
 					"conf": conf.item(),
 				}
@@ -144,6 +145,7 @@ class Pipeline:
 					gray = plate.convert("L")
 				else:
 					gray = plate.copy()
+				gray = np.array(gray)
 				# Preprocess
 				blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 				_, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
