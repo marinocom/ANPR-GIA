@@ -6,7 +6,7 @@
 conda env create -f environment.yml
 conda activate yolo
 ```
-2. Install pytorch
+2. Install pytorch  
 	For macOS:  
 	`conda install pytorch::pytorch torchaudio -c pytorch`  
 	For Windows or Linux, if you have Nvidia GPU:  
