@@ -92,11 +92,11 @@ class Pipeline:
 		boxes = [
 			[
 				{
-					"image": Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)),
+					"image": Image.fromarray(cv2.cvtColor(result.orig_img, cv2.COLOR_BGR2RGB)),
 					"box": box.cpu().numpy().astype(int).tolist(), # [x1, y1, x2, y2]
 					"conf": conf.item(),
 				}
-				for img, box, conf in zip(result.orig_img, result.boxes.xyxy, result.boxes.conf)
+				for box, conf in zip(result.boxes.xyxy, result.boxes.conf)
 				if conf.item() >= conf_thresh				
 			]
 			for result in results
