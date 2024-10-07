@@ -6,3 +6,4 @@ runs
 __pycache__
 data
 custom_dataset
+temp*

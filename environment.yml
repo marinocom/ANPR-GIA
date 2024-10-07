@@ -23,3 +23,5 @@ dependencies:
     - thop>=0.1.1
     - huggingface_hub
     - ipykernel
+    - pytesseract
+    - albumentations
