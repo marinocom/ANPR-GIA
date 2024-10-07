@@ -4,3 +4,5 @@ Dataset
 runs
 *.pt
 __pycache__
+data
+custom_dataset
