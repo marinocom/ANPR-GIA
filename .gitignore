@@ -3,7 +3,9 @@ images/*
 Dataset
 runs
 *.pt
+*.pth
 __pycache__
 data
 custom_dataset
 temp*
+example.png
