@@ -3,6 +3,7 @@ images/*
 Dataset
 runs
 *.pt
+!yolo11n_licenseplates.pt
 *.pth
 __pycache__
 data

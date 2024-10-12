@@ -1,10 +1,12 @@
 import os
 import torch
 import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from ultralytics import YOLO
 from typing import Optional, Union, List
 from PIL import Image
-import numpy as np
 from paddleocr import PaddleOCR
 
 class Pipeline:
@@ -25,6 +27,8 @@ class Pipeline:
 			print(f"Using device {self.device}")
 		else:
 			self.device = device
+
+		self.cache = {}
 
 	def load_yolo(
 			self,
@@ -272,34 +276,149 @@ class Pipeline:
 
 				# Extract the recognized text and confidence
 				for result in results:
-					texts = [text.replace(" ","") for text, conf in result]
+					texts = [text for text, conf in result]
 					confs = [conf for text, conf in result]
 					argmax = np.argmax(confs)
-					if confs[argmax] > thresh: # Filter by confidence
-						plate_recognized.append({"text": texts[argmax], "conf": confs[argmax]})
+					text = texts[argmax]
+					conf = confs[argmax]
+					if conf > thresh: # Filter by confidence
+						plate_recognized.append({"text": text, "conf": conf})
 						
 				img_recognized.append({"path": path, "plate": plate_recognized})
 			recognized.append(img_recognized)
 		return recognized
+	
+	def format_result(
+			self,
+			source: List[List[dict]],
+			conf: bool=True,
+			img: bool=True,
+			gt: bool=True,
+			detections: Optional[List[List[dict]]]=None,
+	) -> List[List[dict]]:
+		"""
+		Format the result into the desired format.
+
+		:param source: Output of the recognize function
+		:param conf: Whether to include confidence in the result
+		:param img: Whether to include the image in the result
+		:param gt: Whether to include the ground truth in the result
+		:param detections: Output of the detect function
+		"""
+		joined = []
+		for img_idx, img in enumerate(source):
+			img_joined = {"plates": []}
+			for plate_idx, plate in enumerate(img):
+				path, plate = plate.values()
+				# Remove all non-alphanumeric and lowercase characters
+				plate_text = "".join([char["text"] for char in plate
+							if char["text"].isalnum() and (char["text"].isupper() or char["text"].isdigit())])
+				
+				# Calculate average confidence
+				avg_conf = np.mean([char["conf"] for char in plate]) if plate else 0
+
+				# Get bounding box if detections are provided
+				box = detections[img_idx][plate_idx]["box"] if detections else None
+
+				plate_info = {"text": plate_text}
+				if conf:
+					plate_info["conf"] = avg_conf
+				if box:
+					plate_info["box"] = box
+				if img and "image" not in img_joined:
+					img_joined["image"] = Image.open(path)
+				if gt and "gt" not in img_joined:
+					img_joined["gt"] = path.split("/")[-1].split(".")[0]
+				img_joined["plates"].append(plate_info)
+			joined.append(img_joined)
+		return joined
 
 		
 	def __call__(
 			self,
 			source: Union[str, Image.Image, List[Image.Image]],
 			img_size: int=640,
-			conf_thresh: int=0.25,
-			max_det: int=-1
+			det_thresh: float=0.25,
+			max_det: int=-1,
+			rec_thresh: float=0.2,
+			**kwargs
 	) -> List[List[dict]]:
 		"""
 		Run the entire pipeline.
 
 		:param source: Path, image or list of images to run inference on
 		:param img_size: Image size for inference
-		:param conf_thresh: Confidence threshold
+		:param conf_thresh: Confidence threshold for detection
 		:param max_det: Maximum detections per image
+		:param rec_thresh: Confidence threshold for OCR
 		"""
-		detections = self.detect(source, img_size, conf_thresh, max_det)
+		cache_process = kwargs.get("cache_process", False)
+		return_box = kwargs.get("return_box", True)
+		return_conf = kwargs.get("return_conf", True)
+		return_img = kwargs.get("return_img", True)
+		return_gt = kwargs.get("return_gt", True)
+
+		# Pipeline
+		detections = self.detect(source, img_size, det_thresh, max_det)
 		crops = self.extract_boxes(detections)
 		segments = self.segment(crops)
-		recognized = self.recognize(segments)
-		return recognized
+		recognized = self.recognize(segments, rec_thresh)
+
+		# Format result
+		result = self.format_result(
+			recognized,
+			conf=return_conf,
+			img=return_img,
+			gt=return_gt,
+			detections=detections if return_box else None
+		)
+
+		if cache_process:
+			# Cache the results
+			self.cache = {
+				"detections": detections,
+				"crops": crops,
+				"segments": segments,
+				"recognized": recognized,
+				"result": result
+			}
+		return result
+	
+	def plot_result(self, result: dict):
+		"""
+		Plot the results for a single image.
+
+		:param result: A single item from the output of format_result
+		"""
+		# Extract the information
+		assert "image" in result, "Image not found in the result"
+		img_rgb = result["image"].convert("RGB")
+		gt = result.get("gt", "Unknown")
+		plates = result["plates"]
+
+		fig, ax = plt.subplots(1)
+		ax.imshow(np.array(img_rgb))
+		ax.set_title(gt, fontsize=16)
+
+		for plate_info in plates:
+			text = plate_info["text"]
+			conf = f"{plate_info['conf']:.2f}"
+			box = plate_info.get("box", None)
+
+			if box:
+				# Draw the bounding box
+				x_min, y_min, x_max, y_max = box
+				rect = patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
+										linewidth=2, edgecolor='red', facecolor='none')
+				ax.add_patch(rect)
+
+				# Calculate the position for the text
+				text_x = (x_min + x_max) / 2
+				text_y = y_min - 0.03 * img_rgb.height
+
+				# Write the recognized text
+				ax.text(text_x, text_y, f"{text} {conf}%", color='black', 
+						fontsize=10, ha='center', backgroundcolor='white')
+
+		plt.axis('off')
+		plt.show()
