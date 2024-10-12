@@ -5,6 +5,7 @@ from ultralytics import YOLO
 from typing import Optional, Union, List
 from PIL import Image
 import numpy as np
+import easyocr
 
 class Pipeline:
 	def __init__(
@@ -92,6 +93,7 @@ class Pipeline:
 		boxes = [
 			[
 				{
+					"path": result.path,
 					"image": Image.fromarray(cv2.cvtColor(result.orig_img, cv2.COLOR_BGR2RGB)),
 					"box": box.cpu().numpy().astype(int).tolist(), # [x1, y1, x2, y2]
 					"conf": conf.item(),
@@ -111,7 +113,7 @@ class Pipeline:
 	def extract_boxes(
 			self,
 			source: List[List[dict]]
-	) -> List[List[Image.Image]]:
+	) -> List[List[dict]]:
 		"""
 		Extract the crops from the images based on the bounding boxes.
 
@@ -119,7 +121,10 @@ class Pipeline:
 		"""
 		crops = [
 			[
-				box["image"].crop(box["box"])
+				{
+					"path": box["path"],
+					"box": box["image"].crop(box["box"])
+				}
 				for box in boxes
 			]
 			for boxes in source
@@ -128,8 +133,8 @@ class Pipeline:
 
 	def segment(
 			self,
-			source: List[List[Image.Image]]
-	) -> List[List[List[Image.Image]]]:
+			source: List[List[dict]]
+	) -> List[List[dict]]:
 		"""
 		Segment the license plates into individual characters.
 
@@ -138,43 +143,46 @@ class Pipeline:
 		segments = []
 		for img in source:
 			img_segments = []
+			img_visualizations = []
+			img_recognized = []
 			for plate in img:
+				path, plate = plate.values()
 				plate_segments = []
+				plate_visualizations = []
+				plate_recognized = []
+
+				# Resize the plate to a consistent size
+				plate = plate.resize((200, 50))
+				
 				# Convert to grayscale if not already
 				if plate.mode != "L":
 					gray = plate.convert("L")
 				else:
 					gray = plate.copy()
 				gray = np.array(gray)
-				# Preprocess
+				
+				# Binarize (black on white blackground)
 				blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-				_, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+				thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+				
+				# Invert (white on black background)
+				thresh = cv2.bitwise_not(thresh)
+				
 				# Find contours
-				contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE) # also cv2.RETR_EXTERNAL
-				# Get bounding boxes of contours
+				contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+				hierarchy = hierarchy[0]
+
+				# Obtain bounding boxes and filter
 				bounding_boxes = []
-				for contour in contours:
-					x, y, w, h = cv2.boundingRect(contour)
-					aspect_ratio = w / float(h)
-					if 0.2 < aspect_ratio < 1.0: # Filter
-						bounding_boxes.append((x, y, w, h))
-				# Sort from left to right
-				bounding_boxes = sorted(bounding_boxes, key=lambda box: box[0])
-				# Extract segments
-				for x, y, w, h in bounding_boxes:
-					segment = plate.crop((x, y, x+w, y+h))
-					plate_segments.append(segment)
-				img_segments.append(plate_segments)
-			segments.append(img_segments)
-		return segments
-	
+				for i, contour in enumerate(contours):
+		
 	def __call__(
 			self,
 			source: Union[str, Image.Image, List[Image.Image]],
 			img_size: int=640,
 			conf_thresh: int=0.25,
 			max_det: int=-1
-	) -> List[List[List[Image.Image]]]:
+	) -> List[List[dict]]:
 		"""
 		Run the entire pipeline.
 
