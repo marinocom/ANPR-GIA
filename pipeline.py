@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from typing import Optional, Union, List
 from PIL import Image
 import numpy as np
-import easyocr
+from paddleocr import PaddleOCR
 
 class Pipeline:
 	def __init__(
@@ -18,6 +18,7 @@ class Pipeline:
 		"""
 		self.yolo = None
 		self.load_yolo(yolo_path)
+		self.ocr_reader = PaddleOCR(lang="en")
 
 		if device is None:
 			self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -143,15 +144,11 @@ class Pipeline:
 		segments = []
 		for img in source:
 			img_segments = []
-			img_visualizations = []
-			img_recognized = []
 			for plate in img:
 				path, plate = plate.values()
 				plate_segments = []
-				plate_visualizations = []
-				plate_recognized = []
 
-				# Resize the plate to a consistent size
+				# Resize the plate to a constant size
 				plate = plate.resize((200, 50))
 				
 				# Convert to grayscale if not already
@@ -172,9 +169,119 @@ class Pipeline:
 				contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
 				hierarchy = hierarchy[0]
 
-				# Obtain bounding boxes and filter
 				bounding_boxes = []
 				for i, contour in enumerate(contours):
+					# Obtain bounding boxes
+					x, y, w, h = cv2.boundingRect(contour)
+
+					# Filter boxes that can't be characters
+					aspect_ratio = w / float(h)
+					area = w * h
+					parent_idx = hierarchy[i][3]
+					child_idx = hierarchy[i][2]
+					if 0.1 < aspect_ratio < 2.0 and 70 < area < 800: # Has the right shape and size
+						is_valid_character = True
+						# Check if is not a hole (for 6, 8, 9, 0)
+						# Holes' boxes are children of other bigger boxes
+						if parent_idx != -1:
+							continue
+						if child_idx != -1:
+							while child_idx != -1:
+								child_area = cv2.contourArea(contours[child_idx])
+								if child_area > 0.5 * area:
+									is_valid_character = False
+									break
+								child_idx = hierarchy[child_idx][0]
+						
+						if is_valid_character:
+							bounding_boxes.append((x, y, w, h))
+				
+				# Sort boxes from left to right
+				bounding_boxes = sorted(bounding_boxes, key=lambda box: box[0])
+
+				# Extract segments, preprocess and filter again
+				for i, (x, y, w, h) in enumerate(bounding_boxes):
+					# Crop the segment
+					segment = plate.crop((x, y, x+w, y+h))
+
+					# Resize to a constant size
+					new_w, new_h = 60, 80
+					segment = segment.resize((new_w-20, new_h-20))
+					segment_rgb = np.array(segment)
+
+					# Binarize
+					segment = segment.convert("L")
+					_, segment = cv2.threshold(np.array(segment), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+					segment = Image.fromarray(segment)
+
+					# Place segment on a larger white background
+					background = Image.new('L', (new_w, new_h), 255)
+					offset = (10, 10)
+					background.paste(segment, offset)
+					segment = background
+
+					# Filter blue segments (left side of the plate)
+					segment_hsv = cv2.cvtColor(segment_rgb, cv2.COLOR_RGB2HSV)
+					lower_blue = np.array([100, 50, 50])
+					upper_blue = np.array([140, 255, 255])
+					blue_mask = cv2.inRange(segment_hsv, lower_blue, upper_blue)
+					blue_pixel_count = cv2.countNonZero(blue_mask)
+					total_pixel_count = segment_hsv.shape[0] * segment_hsv.shape[1]
+					blue_ratio = blue_pixel_count / total_pixel_count
+					is_blue = blue_ratio > 0.5
+
+					# Filter blobs
+					eroded = 255 - np.array(segment)
+					eroded = cv2.erode(eroded, np.ones((3, 3)), iterations=8)
+					is_blob = np.count_nonzero(eroded) / (new_w*new_h) > 0.05
+					
+					if not is_blue and not is_blob:
+						plate_segments.append(segment)
+
+				img_segments.append({"path": path, "segments": plate_segments})
+			segments.append(img_segments)
+		return segments
+	
+	def recognize(
+			self,
+			source: List[List[dict]],
+			thresh: float=0.5
+	):
+		"""
+		Recognize the characters in the segments.
+
+		:param source: Output of the segment function
+		"""
+		recognized = []
+		for img in source:
+			img_recognized = []
+			for plate in img:
+				path, segments = plate.values()
+				plate_recognized = []
+				
+				# Run OCR on each segment
+				results = [
+					self.ocr_reader.ocr(
+						np.array(segment),
+						det=False,
+						rec=True,
+						cls=False
+					)[0]
+					for segment in segments
+				]
+
+				# Extract the recognized text and confidence
+				for result in results:
+					texts = [text.replace(" ","") for text, conf in result]
+					confs = [conf for text, conf in result]
+					argmax = np.argmax(confs)
+					if confs[argmax] > thresh: # Filter by confidence
+						plate_recognized.append({"text": texts[argmax], "conf": confs[argmax]})
+						
+				img_recognized.append({"path": path, "plate": plate_recognized})
+			recognized.append(img_recognized)
+		return recognized
+
 		
 	def __call__(
 			self,
@@ -194,4 +301,5 @@ class Pipeline:
 		detections = self.detect(source, img_size, conf_thresh, max_det)
 		crops = self.extract_boxes(detections)
 		segments = self.segment(crops)
-		return segments
+		recognized = self.recognize(segments)
+		return recognized
