@@ -417,7 +417,7 @@ class Pipeline:
 				text_y = y_min - 0.03 * img_rgb.height
 
 				# Write the recognized text
-				ax.text(text_x, text_y, f"{text} ({conf})", color='black', 
+				ax.text(text_x, text_y, f"{text} {conf}%", color='black', 
 						fontsize=10, ha='center', backgroundcolor='white')
 
 		plt.axis('off')
