@@ -4,10 +4,40 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import seaborn as sns
+import Levenshtein
 from ultralytics import YOLO
 from typing import Optional, Union, List
 from PIL import Image
 from paddleocr import PaddleOCR
+from collections import defaultdict
+
+def avg(lst):
+	return sum(lst) / len(lst)
+
+def accuracy_score(gt: str, pred: str) -> int:
+	return int(gt == pred)
+
+def ANLS(predictions: str, gt: str) -> float:
+	d = Levenshtein.distance(predictions, gt)
+	max_len = max(len(predictions), len(gt))
+	if max_len > 0:
+		return 1 - d / max_len
+	else:
+		return 1.0
+	
+def plot_confusion_matrix(matrix: np.ndarray, characters: str):
+	matrix = matrix.astype(int)
+	fig, ax = plt.subplots(figsize=(10, 10))
+	sns.heatmap(matrix, annot=True, fmt='d', cmap='Blues', xticklabels=characters, yticklabels=characters)
+	ax.set_xlabel('Predicted')
+	ax.set_ylabel('Ground Truth')
+	ax.set_title('Confusion Matrix')
+	plt.show()
+	
+characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-'
+char_to_index = {char: idx for idx, char in enumerate(characters)}
+matrix_size = len(characters)
 
 class Pipeline:
 	def __init__(
@@ -328,7 +358,7 @@ class Pipeline:
 				if img and "image" not in img_joined:
 					img_joined["image"] = Image.open(path)
 				if gt and "gt" not in img_joined:
-					img_joined["gt"] = path.split("/")[-1].split(".")[0]
+					img_joined["gt"] = path.split("/")[-1].split(".")[0][:7]
 				img_joined["plates"].append(plate_info)
 			joined.append(img_joined)
 		return joined
@@ -422,3 +452,69 @@ class Pipeline:
 
 		plt.axis('off')
 		plt.show()
+
+	def evaluate(
+			self,
+			results: dict
+	) -> dict:
+		"""
+		Evaluate the results against the ground truth.
+
+		:param results: The output of format_result
+		"""
+		assert all(["gt" in result for result in results]), "Ground truth not found in the result"
+		
+		# Keep the most similar prediction in each image by ANLS
+		anls = []
+		preds = []
+		confs = []
+		gt = []
+		for result in results:
+			res_plates = result["plates"]
+			res_anls = [ANLS(plate["text"], result["gt"]) for plate in res_plates]
+			argmax = np.argmax(res_anls)
+			anls.append(res_anls[argmax])
+			preds.append(res_plates[argmax]["text"])
+			confs.append(res_plates[argmax]["conf"])
+			gt.append(result["gt"])
+
+		# Accuracy
+		accuracy = [accuracy_score(p, g) for p, g in zip(preds, gt)]
+
+		# Confusion matrix
+		confusion_matrix = np.zeros((matrix_size, matrix_size))
+		for p, g in zip(preds, gt):
+			for i, (p_char, g_char) in enumerate(zip(p, g)):
+				confusion_matrix[char_to_index[g_char]][char_to_index[p_char]] += 1
+		
+		# Precision, Recall, F1
+		TP = sum(confusion_matrix[i][i] for i in range(matrix_size))
+		FP = sum(confusion_matrix[:, i].sum() - confusion_matrix[i][i] for i in range(matrix_size))
+		FN = sum(confusion_matrix[i, :].sum() - confusion_matrix[i][i] for i in range(matrix_size))
+
+		precision = TP / (TP + FP) if (TP + FP) != 0 else 0
+		recall = TP / (TP + FN) if (TP + FN) != 0 else 0
+		f1 = 2 * precision * recall / (precision + recall) if (precision + recall) != 0 else 0
+
+		# Most confused characters
+		most_confused_chars = defaultdict(int)
+		for i in range(matrix_size):
+			for j in range(matrix_size):
+				if i != j:
+					most_confused_chars[(characters[i], characters[j])] = confusion_matrix[i][j]
+		most_confused_chars = sorted(most_confused_chars.items(), key=lambda x: x[1], reverse=True)
+
+		return {
+			"accuracy": accuracy,
+			"anls": anls,
+			"confs": confs,
+			"avg_accuracy": avg(accuracy),
+			"avg_anls": avg(anls),
+			"avg_conf": avg(confs),
+			"conf_matrix": confusion_matrix,
+			"precision": precision,
+			"recall": recall,
+			"f1": f1,
+			"most_confused_chars": most_confused_chars
+		}
+		
