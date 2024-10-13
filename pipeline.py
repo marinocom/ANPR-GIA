@@ -341,8 +341,8 @@ class Pipeline:
 			for plate_idx, plate in enumerate(img):
 				path, plate = plate.values()
 				# Remove all non-alphanumeric and lowercase characters
-				plate_text = "".join([char["text"] for char in plate
-							if char["text"].isalnum() and (char["text"].isupper() or char["text"].isdigit())])
+				plate_text = "".join([char["text"].upper() for char in plate
+							if char["text"].isalnum()])
 				
 				# Calculate average confidence
 				avg_conf = np.mean([char["conf"] for char in plate]) if plate else 0
