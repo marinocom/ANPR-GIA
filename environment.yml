@@ -26,3 +26,4 @@ dependencies:
     - pytesseract
     - albumentations
     - paddleocr
+    - paddlepaddle

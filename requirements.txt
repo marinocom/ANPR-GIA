@@ -18,3 +18,4 @@ huggingface_hub
 pytesseract
 albumentations
 paddleocr
+paddlepaddle
