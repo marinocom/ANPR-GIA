@@ -18,7 +18,7 @@ def avg(lst):
 def accuracy_score(gt: str, pred: str) -> int:
 	return int(gt == pred)
 
-def ANLS(predictions: str, gt: str) -> float:
+def NLS(predictions: str, gt: str) -> float:
 	d = Levenshtein.distance(predictions, gt)
 	max_len = max(len(predictions), len(gt))
 	if max_len > 0:
@@ -465,15 +465,15 @@ class Pipeline:
 		assert all(["gt" in result for result in results]), "Ground truth not found in the result"
 		
 		# Keep the most similar prediction in each image by ANLS
-		anls = []
+		nls = []
 		preds = []
 		confs = []
 		gt = []
 		for result in results:
 			res_plates = result["plates"]
-			res_anls = [ANLS(plate["text"], result["gt"]) for plate in res_plates]
+			res_anls = [NLS(plate["text"], result["gt"]) for plate in res_plates]
 			argmax = np.argmax(res_anls)
-			anls.append(res_anls[argmax])
+			nls.append(res_anls[argmax])
 			preds.append(res_plates[argmax]["text"])
 			confs.append(res_plates[argmax]["conf"])
 			gt.append(result["gt"])
@@ -506,10 +506,10 @@ class Pipeline:
 
 		return {
 			"accuracy": accuracy,
-			"anls": anls,
+			"nls": nls,
 			"confs": confs,
 			"avg_accuracy": avg(accuracy),
-			"avg_anls": avg(anls),
+			"avg_nls": avg(nls),
 			"avg_conf": avg(confs),
 			"conf_matrix": confusion_matrix,
 			"char_precision": precision,
