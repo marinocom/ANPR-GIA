@@ -487,7 +487,7 @@ class Pipeline:
 			for i, (p_char, g_char) in enumerate(zip(p, g)):
 				confusion_matrix[char_to_index[g_char]][char_to_index[p_char]] += 1
 		
-		# Precision, Recall, F1
+		# Character Precision, Recall, F1 (micro-averaging)
 		TP = sum(confusion_matrix[i][i] for i in range(matrix_size))
 		FP = sum(confusion_matrix[:, i].sum() - confusion_matrix[i][i] for i in range(matrix_size))
 		FN = sum(confusion_matrix[i, :].sum() - confusion_matrix[i][i] for i in range(matrix_size))
@@ -512,9 +512,9 @@ class Pipeline:
 			"avg_anls": avg(anls),
 			"avg_conf": avg(confs),
 			"conf_matrix": confusion_matrix,
-			"precision": precision,
-			"recall": recall,
-			"f1": f1,
+			"char_precision": precision,
+			"char_recall": recall,
+			"char_f1": f1,
 			"most_confused_chars": most_confused_chars
 		}
 		
