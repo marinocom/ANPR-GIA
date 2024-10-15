@@ -1,5 +1,4 @@
 images/*
-!images/reduced/
 Dataset
 runs
 *.pt
