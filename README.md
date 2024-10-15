@@ -17,7 +17,7 @@ conda activate yolo
 	`conda install pytorch torchvision cpuonly -c pytorch`  
 
 ## Repo structure
-- [`pipeline.py`](pipeline.py): contains the full and clean implementation of our pipeline to detect and recognize license plates.  
+- [`pipeline.py`](pipeline.py): **contains the full and clean implementation of our pipeline to detect and recognize license plates.**
 - [`notebooks/`](notebooks/): folder with notebooks of the process that lead to the final code.
 	- [`comparisonOCR.ipynb`](notebooks/comparisonOCR.ipynb): script with metrics comparing Tesseract, EasyOCR and PaddleOCR for recognition.
 	- [`comparisonYoloMathMorph.ipynb`](notebooks/comparisonYoloMathMorph.ipynb): script with examples and metrics of the two detection models we used.
